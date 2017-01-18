@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Jan 16 16:52:05 2017
+
+@author: meghanasatish
+"""
+
+
+import pandas as pd
+import numpy as np
+import nltk
+import string
+import matplotlib.pyplot as plt
+from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.cross_validation import train_test_split
+from sklearn import metrics
+from sklearn.metrics import classification_report
+from sklearn import linear_model
+
+data=pd.read_csv("Reviews.csv", encoding='latin-1',low_memory= False)
+
+#print(data.head(3))
+
+#data cleaning
+relevant_columns=['HelpfulnessNumerator','HelpfulnessDenominator','Score','Summary']
+
+data_necessary=data[relevant_columns]
+data_necessary.to_csv("data_necessary.csv")
+
+data_necessary = data_necessary[(data_necessary.HelpfulnessDenominator > 1)]
+
+#print(data_necessary.head(3))
+
+data_necessary[['HelpfulnessNumerator','HelpfulnessDenominator','Score','Summary']].dropna().describe()
+
+#categorical cleaning
+data_necessary['Score']=data_necessary['Score'].replace(2,1).replace(4,5).replace(3,5)
+data_necessary['Score'] = pd.Series(data_necessary['Score'], dtype="category")
+
+data_necessary['Score']=data_necessary['Score'].cat.rename_categories(['negative','positive'])
+
+#Text cleaning(removing punctutations, lower case)
+ 
+data_necessary['new_summary'] = data_necessary['Summary'].str.replace('[^\w\s]','')
+
+data_necessary.new_summary=data_necessary.new_summary.astype(str)
+
+data_necessary['new_summary']=data_necessary['Summary'].str.lower()
+
+data_necessary = data_necessary.drop('Summary', 1)
+
+Summary=data_necessary['new_summary']
+Score= data_necessary['Score']
+
+X_train, X_test, y_train, y_test = train_test_split(Summary, Score, test_size=0.2, random_state=42)
+
+#Removing Stop Words
+from nltk.corpus import stopwords
+
+for val in X_train:
+    text=val.lower()
+    tokens = nltk.word_tokenize(text)
+    tokens = [word for word in tokens if word not in stopwords.words('english')]
+         
+count_vect = CountVectorizer()
+X_train_count_vectors = count_vect.fit_transform(X_train)        
+        
+tfidf_transform = TfidfTransformer()
+X_train_term_freq = tfidf_transform.fit_transform(X_train_count_vectors)
+
+X_test_counts = count_vect.transform(X_test)
+X_test_term_freq = tfidf_transform.transform(X_test_counts)
+
+prediction = dict()
+
+logreg = linear_model.LogisticRegression(C=100000,fit_intercept=False)
+logreg.fit(X_train_term_freq, y_train)
+prediction['Logistic'] = logreg.predict(X_test_term_freq)
+
+print(metrics.classification_report(y_test, prediction['Logistic'], target_names = ["positive", "negative"]))
+
+
+#Processing further
+
+data_necessary['Ratio']=np.where(data_necessary['HelpfulnessNumerator']/data_necessary['HelpfulnessDenominator']>0.6,1,0)
+
+#categorical cleaning
+data_necessary['Score']=data_necessary['Score'].replace(2,1).replace(4,5)
+data_necessary['Score'] = pd.Series(data_necessary['Score'], dtype="category")
+
+data_necessary['Score']=data_necessary['Score'].cat.rename_categories(['bad','average','good'])
+
+Predictors=data_necessary[['HelpfulnessNumerator','HelpfulnessDenominator','Ratio']]
+Target=data_necessary['Score']
+
+
+X_train, X_test, y_train, y_test = train_test_split(Predictors, Target, test_size=0.2, random_state=42)
+
+#Define a simple train-predict utility function
+def train_predict(classification, X_train, X_test, y_train, y_test):
+
+    classification.fit(X_train, y_train)
+   
+    y_pred = classification.predict(X_test)
+    return y_pred
+    
+from sklearn.tree import DecisionTreeClassifier
+classification = DecisionTreeClassifier(random_state=42)
+y_pred = train_predict(classification, X_train, X_test, y_train, y_test)
+
+print(classification_report(y_test, y_pred))
+
+
+
